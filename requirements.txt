@@ -1,8 +1,4 @@
-pandas>=2.0
-scikit-learn>=1.3
-tqdm>=4.65
-kagglehub>=0.2
-railtracks>=1.0
-openai>=1.0
-fastapi>=0.104.0
-uvicorn[standard]>=0.24.0
+# Root-level deps; backend has its own backend/requirements.txt
+# Use backend for running the API and pipeline:
+#   pip install -r backend/requirements.txt
+-r backend/requirements.txt

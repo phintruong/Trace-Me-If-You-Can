@@ -8,42 +8,27 @@ Quick reference for the AML (Anti–Money Laundering) project.
 
 | What | How |
 |------|-----|
-| **Run IBM AML pipeline** | `python run_pipeline.py` |
-| **Use another CSV** | `python run_pipeline.py --file HI-Medium_Trans.csv` or `--csv "path/to/file.csv"` |
+| **Run AML pipeline (GNN + Railtracks)** | `python run_pipeline.py` (needs saved GNN model + processed_data/) |
 | **Download IBM data** | `python download_ibm_data.py` (needs `kagglehub` + Kaggle auth) |
+| **Dashboard API** | `uvicorn src.api.dashboard:app --reload` then POST `/api/run-pipeline` |
 
 ---
 
-## Main pipeline (IBM AML RF)
+## Main pipeline (GNN + Railtracks)
 
-Flow: **run_pipeline.py** → **src.pipeline.runner** → data → features → model → metrics + predictions CSV.
+Flow: **run_pipeline.py** → **src.pipeline.run_aml_pipeline** → load data → build graph → GNN inference → Railtracks agents → API output.
 
-1. **run_pipeline.py**  
-   Adds project root to `sys.path`, imports and calls `src.pipeline.runner.main()`.
+1. **run_pipeline.py** — Calls `src.pipeline.run_aml_pipeline.run_pipeline()`.
 
-2. **src/pipeline/runner.py**  
-   - Parses `--file` and `--csv`.
-   - Loads transaction CSV via `src.data.ibm_loader`.
-   - Builds feature matrix via `src.features.engine.build_model_matrix`.
-   - Trains Random Forest via `src.model.train.train_random_forest`.
-   - Evaluates and prints metrics; writes test predictions to `outputs/rf_eval_predictions_<timestamp>.csv`.
+2. **src/pipeline/run_aml_pipeline.py** — Load data, preprocess, build graph, detect patterns, load saved GraphSAGE, run inference, then 3 Railtracks agents (Pattern, Risk, Investigator). Output in `ctx.api_output`. See **docs/GNN_TO_RAILTRACKS.md**.
 
-3. **src/data/ibm_loader.py**  
-   - `get_dataset_path(file_name=None)`: resolves path by looking in **Data/** then **kagglehub_cache/.../versions/8**.
-   - `load_transactions(file_name=None, csv_path=None)`: reads CSV; if `csv_path` is set, uses that path directly.
+3. **src/data/ibm_loader.py** — `get_dataset_path()` tries Data/ then kagglehub cache. `load_transactions()` reads CSV.
 
-4. **src/features/engine.py**  
-   - Expects IBM AML schema (see `src.config.IBM_REQUIRED_COLUMNS`).
-   - `validate_ibm_schema(df)` then `build_model_matrix(df)` → (X, y).
-   - Derives Hour, DayOfWeek, Day, Month from `Timestamp`; factorizes categoricals; returns `MODEL_FEATURE_COLUMNS` + target `Is Laundering`.
+4. **src/features/engine.py** — `build_model_matrix(df)` for pipeline preprocessing (IBM schema).
 
-5. **src/model/train.py**  
-   - `stratified_downsample(X, y)` to cap rows (config: `MAX_ROWS`).
-   - `train_random_forest(X, y)`: train/test split, `RandomForestClassifier` (config: `RF_N_ESTIMATORS`, `class_weight="balanced_subsample"`), returns model + splits.
-   - `evaluate_model(model, X_test, y_test)`: classification report, confusion matrix, ROC-AUC, PR-AUC.
+5. **src/model/gnn_inference.py** — Load GraphSAGE from .pkl, run inference, return account risk scores.
 
-6. **src/utils/logging.py**  
-   - `setup_logging()`: file log under `outputs/logs/`, console at INFO.
+6. **src/utils/logging.py** — `setup_logging()`: file log under `outputs/logs/`, console at INFO.
 
 ---
 
@@ -57,8 +42,8 @@ Flow: **run_pipeline.py** → **src.pipeline.runner** → data → features → 
 | `DEFAULT_DATASET_FILE` | `"HI-Small_Trans.csv"`. |
 | `OUTPUT_DIR` / `LOG_DIR` | `outputs/`, `outputs/logs/`. |
 | `IBM_REQUIRED_COLUMNS` | Columns required in raw IBM CSV. |
-| `MODEL_FEATURE_COLUMNS` | Features used for the RF model. |
-| `RANDOM_STATE`, `MAX_ROWS`, `TEST_SIZE`, `RF_N_ESTIMATORS` | Training/sampling settings. |
+| `MODEL_FEATURE_COLUMNS` | Features used in preprocessing. |
+| `GNN_MODEL_PATH`, `GNN_ARTIFACTS_DIR` | Paths for saved GraphSAGE and processed_data/. |
 
 ---
 

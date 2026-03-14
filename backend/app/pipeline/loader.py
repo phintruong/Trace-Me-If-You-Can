@@ -1,30 +1,30 @@
-"""Dataset loader: IBM (via src.data.ibm_loader) or local CSV path."""
+"""Load AML dataset from datasets/ibm_aml or local CSV path."""
 
 from pathlib import Path
 
 import pandas as pd
 
+from app.config import DATASET_SOURCE, DATASETS_DIR, DEFAULT_DATASET_FILE
 
-def load_dataset(source: str) -> pd.DataFrame:
-    """
-    Load transaction dataset.
-    - source == "ibm": use configured IBM/Kaggle dataset via src.data.ibm_loader.
-    - else: treat source as path to local CSV.
-    """
-    if source.strip().lower() == "ibm":
-        try:
-            from src.data.ibm_loader import load_transactions
-            return load_transactions()
-        except ImportError:
-            # Fallback: try project-relative path
-            from app.config import PROJECT_ROOT
-            path = PROJECT_ROOT / "kagglehub_cache" / "datasets" / "ealtman2019" / "ibm-transactions-for-anti-money-laundering-aml" / "versions" / "8" / "HI-Small_Trans.csv"
-            if path.exists():
-                return pd.read_csv(path)
+
+def get_dataset_path(source: str | None = None, file_name: str | None = None) -> Path:
+    """Resolve CSV path: datasets/ibm_aml or explicit file path."""
+    src = (source or DATASET_SOURCE).strip()
+    if src.lower() == "ibm":
+        name = file_name or DEFAULT_DATASET_FILE
+        path = DATASETS_DIR / name
+        if not path.exists():
             raise FileNotFoundError(
-                "IBM dataset not found. Set PYTHONPATH to project root or provide a CSV path as source."
+                f"Dataset not found: {path}. Place IBM AML CSV in {DATASETS_DIR} or set DATASET_SOURCE to a CSV path."
             )
-    path = Path(source)
+        return path
+    path = Path(src)
     if not path.exists():
         raise FileNotFoundError(f"Dataset file not found: {path}")
+    return path
+
+
+def load_dataset(source: str | None = None, file_name: str | None = None) -> pd.DataFrame:
+    """Load transaction CSV. source='ibm' uses datasets/ibm_aml, else path to CSV."""
+    path = get_dataset_path(source=source, file_name=file_name)
     return pd.read_csv(path)

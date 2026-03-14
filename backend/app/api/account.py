@@ -47,7 +47,7 @@ def _flag_from_max_risk(max_risk: float) -> str:
     return "NORMAL"
 
 
-@router.get("/account/{account_id}", response_model=AccountResult)
+@router.get("/{account_id}", response_model=AccountResult)
 def account(account_id: str, force: bool = False):
     """
     Return account_id (int), flag (NORMAL | SUSPICIOUS | LAUNDERING), and aiExplanation.
