@@ -4,19 +4,19 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.config import DATASET_DIR, DEFAULT_DATASET_FILE
+from src.config import DATA_DIR, DATASET_DIR, DEFAULT_DATASET_FILE
 
 
 def get_dataset_path(file_name=None):
-    """Resolve transaction CSV path from configured local dataset directory."""
+    """Resolve transaction CSV path: try Data/ then kagglehub cache."""
     name = file_name or DEFAULT_DATASET_FILE
-    csv_path = DATASET_DIR / name
-    if not csv_path.exists():
-        raise FileNotFoundError(
-            f"Dataset file not found: {csv_path}. "
-            "Make sure the dataset exists under kagglehub_cache."
-        )
-    return csv_path
+    for base in (DATA_DIR, DATASET_DIR):
+        csv_path = base / name
+        if csv_path.exists():
+            return csv_path
+    raise FileNotFoundError(
+        f"Dataset file not found: {name}. Looked in {DATA_DIR} and {DATASET_DIR}."
+    )
 
 
 def load_transactions(file_name=None):
