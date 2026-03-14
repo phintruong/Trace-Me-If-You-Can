@@ -25,6 +25,7 @@ datasets/
 kagglehub_cache/
 Personal/
 Data/
+my_folder.zip
 
 # Backend outputs (generated at runtime)
 backend/outputs/
@@ -39,3 +40,5 @@ frontend/out/
 
 # Model checkpoints (large binaries)
 *.pkl
+
+kaggle/
