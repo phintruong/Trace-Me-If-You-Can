@@ -10,6 +10,8 @@ torch>=2.0.0
 torch_geometric>=2.4.0
 # IBM Db2 client (enables DB_MODE=db2 in backend)
 ibm_db>=3.2.0
+# PDF export for flagged accounts
+reportlab>=4.0.0
 # Optional: watsonx.ai SDK
 # ibm-watsonx-ai>=1.0.0
 # Tests
