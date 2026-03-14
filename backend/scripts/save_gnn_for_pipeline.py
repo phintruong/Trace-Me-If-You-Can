@@ -1,25 +1,31 @@
 """
-Save the current GNN model from the notebook in the format expected by the Railtracks pipeline.
-Run this (or the equivalent) after training in the GNN notebook, with model and config in scope.
+Save a trained GNN model in the format expected by the backend pipeline.
 
-Usage from Python (e.g. after running the GNN notebook):
-  from src.model.gnn_inference import GraphSAGE_AML
-  from pathlib import Path
-  import torch
-  model = ...  # your trained GraphSAGE_AML
-  path = Path("model/run_1_GraphSAGE_A+B_(Synergy).pkl")
-  path.parent.mkdir(parents=True, exist_ok=True)
-  torch.save({
-      "state_dict": model.state_dict(),
-      "config": {"input_dim": x_train.shape[1], "hidden_dim": 64, "num_layers": 3, "dropout": 0.3},
-  }, path)
+Run after training in a notebook with model and config in scope:
+
+    import torch
+    from pathlib import Path
+
+    path = Path("backend/model/run_1_GraphSAGE_A+B_(Synergy).pkl")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save({
+        "model_state_dict": model.state_dict(),
+        "model_name": "GraphSAGE",
+        "input_dim": x_train.shape[1],
+        "feature_set": "A+B",
+        "config": {
+            "input_dim": x_train.shape[1],
+            "hidden_dim": 64,
+            "num_layers": 3,
+            "dropout": 0.3,
+            "aggr": "mean",
+        },
+    }, path)
+
+The backend checkpoint loader (backend/app/models/gnn_models.py:load_gnn_model)
+also accepts the simpler state_dict+config format for backwards compatibility.
 """
-from pathlib import Path
-import sys
-
-# Add project root
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 if __name__ == "__main__":
-    print("Save from the GNN notebook with:")
-    print("  torch.save({'state_dict': model.state_dict(), 'config': {...}}, 'model/run_1_GraphSAGE_A+B_(Synergy).pkl')")
+    print("This is a reference script. Run the code above from your training notebook.")
+    print("See backend/app/models/gnn_models.py for supported checkpoint formats.")

@@ -1,7 +1,7 @@
 """
 Download the IBM AML transaction dataset into datasets/ibm_aml so the backend pipeline can find it.
 
-Run once:  python download_ibm_data.py
+Run once:  python backend/scripts/download_ibm_data.py
 
 Requires:  pip install kagglehub
 Kaggle:    https://www.kaggle.com/datasets/ealtman2019/ibm-transactions-for-anti-money-laundering-aml
@@ -12,7 +12,8 @@ import os
 import shutil
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+# backend/scripts/ -> backend/ -> project root
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 TARGET_DIR = PROJECT_ROOT / "datasets" / "ibm_aml"
 CACHE = PROJECT_ROOT / "kagglehub_cache"
 CACHE.mkdir(parents=True, exist_ok=True)

@@ -87,7 +87,7 @@ cd frontend && npm install && npm run dev
 
 ## Data
 
-- Place IBM AML CSVs in **datasets/ibm_aml/** (e.g. from Kaggle or `download_ibm_data.py`).  
+- Place IBM AML CSVs in **datasets/ibm_aml/** (e.g. from Kaggle or `python backend/scripts/download_ibm_data.py`).  
 - Default file: `HI-Small_Trans.csv`.
 
 ## Notebooks

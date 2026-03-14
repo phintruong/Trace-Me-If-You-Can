@@ -1,10 +1,41 @@
+# OS
 .DS_Store
+Thumbs.db
+
+# IDE
 .idea/
-Personal/
-.env
-venv/
-kagglehub_cache/
+.vscode/
+*.swp
+
+# Python
 __pycache__/
 *.pyc
-Data/
+*.pyo
+*.egg-info/
+dist/
+build/
+venv/
+.venv/
+
+# Environment
+.env
+
+# Data (large files, download via backend/scripts/download_ibm_data.py)
 datasets/
+kagglehub_cache/
+Personal/
+Data/
+
+# Backend outputs (generated at runtime)
+backend/outputs/
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Notebooks checkpoints
+.ipynb_checkpoints/
+
+# Model checkpoints (large binaries)
+*.pkl
