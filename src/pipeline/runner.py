@@ -1,7 +1,9 @@
-"""Simple IBM AML pipeline: load data, build features, train RF, print metrics."""
+"""Simple IBM AML pipeline: load data, build features, train RF, print metrics, save model."""
 
 import argparse
 from datetime import datetime
+
+import joblib
 
 from src.config import OUTPUT_DIR
 from src.data.ibm_loader import get_dataset_path, load_transactions
@@ -45,6 +47,10 @@ def run_pipeline(file_name=None):
     out_path = OUTPUT_DIR / f"rf_eval_predictions_{ts}.csv"
     pred_df.to_csv(out_path, index=False)
     logger.info(f"Saved test predictions: {out_path}")
+
+    model_path = OUTPUT_DIR / "model.pkl"
+    joblib.dump(model, model_path)
+    logger.info(f"Saved model: {model_path}")
 
 
 def main():

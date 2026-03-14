@@ -1,0 +1,21 @@
+# IBM Code Engine application manifest (minimal).
+# Use: ibmcloud ce application create --name fraud-backend --image <registry>/fraud-backend:latest
+# Or apply env/secret refs via CLI; do not store secrets in this file.
+apiVersion: codeengine.cloud.ibm.com/v1beta1
+kind: Application
+metadata:
+  name: fraud-backend
+spec:
+  image: <your-registry>/fraud-backend:latest
+  port: 8080
+  runAsRoot: false
+  # Env from ConfigMap/Secret - set via CLI:
+  # ibmcloud ce application update --env-from-secret watsonx-secret --env DB_MODE=sqlite --env RISK_THRESHOLD=0.7
+  env:
+    - name: DB_MODE
+      value: sqlite
+    - name: RISK_THRESHOLD
+      value: "0.7"
+    - name: LOG_LEVEL
+      value: INFO
+  # Required: add WATSONX_APIKEY, WATSONX_PROJECT_ID, DB_CONN_STRING (if Db2) via Secrets in IBM Cloud console or CLI.
