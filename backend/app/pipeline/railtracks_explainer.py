@@ -20,19 +20,37 @@ def _get_connections_for_account(
 
 
 def _call_llm(system: str, user: str, model_gemini: str = "gemini/gemini-2.0-flash") -> str:
-    """Single completion via LiteLLM (Gemini) or OpenAI via Railtracks."""
+    """Single completion via LiteLLM (Gemini), Railtracks, or static fallback."""
+    # Primary: LiteLLM with Gemini
     if os.environ.get("GEMINI_API_KEY"):
-        import litellm
-        r = litellm.completion(
-            model=model_gemini,
-            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-        )
-        return (r.choices[0].message.content or "").strip()
-    import railtracks as rt
-    agent = rt.agent_node("Analyst", tool_nodes=(), llm=rt.llm.OpenAILLM("gpt-4o"), system_message=system)
-    flow = rt.Flow(name="Explain", entry_point=agent)
-    result = flow.invoke(user)
-    return (getattr(result, "text", None) or str(result)).strip()
+        try:
+            import litellm
+            r = litellm.completion(
+                model=model_gemini,
+                messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+            )
+            return (r.choices[0].message.content or "").strip()
+        except ImportError:
+            pass
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("LiteLLM call failed: %s", e)
+
+    # Fallback: Railtracks SDK
+    try:
+        import railtracks as rt
+        agent = rt.agent_node("Analyst", tool_nodes=(), llm=rt.llm.OpenAILLM("gpt-4o"), system_message=system)
+        flow = rt.Flow(name="Explain", entry_point=agent)
+        result = flow.invoke(user)
+        return (getattr(result, "text", None) or str(result)).strip()
+    except ImportError:
+        pass
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Railtracks call failed: %s", e)
+
+    # Last resort: static summary
+    return "Automated explanation unavailable. Review flagged accounts manually."
 
 
 def run_railtracks_explainer(
