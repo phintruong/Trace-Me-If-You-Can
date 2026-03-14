@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
-from app.api import account
+from app.api import account, export as export_api
 from app.services.db_client import init_db
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
@@ -44,6 +44,7 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
 app.add_middleware(RequestIDMiddleware)
 
 app.include_router(account.router, tags=["account"])
+app.include_router(export_api.router)
 
 
 @app.get("/health")

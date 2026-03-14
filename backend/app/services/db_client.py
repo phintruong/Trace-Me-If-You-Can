@@ -187,6 +187,94 @@ def get_alerts(threshold: float, limit: int = 50) -> Optional[List[Dict[str, Any
         conn.close()
 
 
+def get_flagged_accounts(
+    threshold: float, limit: Optional[int] = None
+) -> List[Dict[str, Any]]:
+    """
+    Return one row per account where the account's max risk_score >= threshold.
+    Each row: account_id, risk_score (max), transaction_id (top-risk tx), summary_text,
+    transaction_count, total_amount, last_transaction_date.
+    Ordered by risk_score descending.
+    """
+    init_db()
+    conn = _get_connection()
+    try:
+        cur = conn.cursor()
+        # One row per account: the transaction with max risk for that account.
+        # Join explanations for summary_text and aggregate subquery for counts.
+        if DB_MODE == "db2" and _HAS_DB2:
+            sql = """
+            SELECT t.transaction_id, t.account_id, t.timestamp, t.amount, t.risk_score,
+                   e.summary_text, a.transaction_count, a.total_amount, a.last_transaction_date
+            FROM (
+                SELECT p.transaction_id, p.account_id, p.timestamp, p.amount, p.risk_score,
+                       ROW_NUMBER() OVER (PARTITION BY p.account_id ORDER BY p.risk_score DESC) AS rn
+                FROM predictions p
+                WHERE p.risk_score >= ?
+            ) t
+            LEFT JOIN explanations e ON t.transaction_id = e.transaction_id
+            LEFT JOIN (
+                SELECT account_id, COUNT(*) AS transaction_count,
+                       COALESCE(SUM(amount), 0) AS total_amount,
+                       MAX(timestamp) AS last_transaction_date
+                FROM predictions GROUP BY account_id
+            ) a ON t.account_id = a.account_id
+            WHERE t.rn = 1
+            ORDER BY t.risk_score DESC
+            """
+        else:
+            sql = """
+            WITH ranked AS (
+                SELECT p.transaction_id, p.account_id, p.timestamp, p.amount, p.risk_score,
+                       ROW_NUMBER() OVER (PARTITION BY p.account_id ORDER BY p.risk_score DESC) AS rn
+                FROM predictions p
+                WHERE p.risk_score >= ?
+            ),
+            aggs AS (
+                SELECT account_id, COUNT(*) AS transaction_count,
+                       COALESCE(SUM(amount), 0) AS total_amount,
+                       MAX(timestamp) AS last_transaction_date
+                FROM predictions GROUP BY account_id
+            )
+            SELECT t.transaction_id, t.account_id, t.timestamp, t.amount, t.risk_score,
+                   e.summary_text, a.transaction_count, a.total_amount, a.last_transaction_date
+            FROM ranked t
+            LEFT JOIN explanations e ON t.transaction_id = e.transaction_id
+            LEFT JOIN aggs a ON t.account_id = a.account_id
+            WHERE t.rn = 1
+            ORDER BY t.risk_score DESC
+            """
+        params: List[Any] = [threshold]
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+        cols = [d[0] for d in cur.description]
+        result = []
+        for row in rows:
+            d = dict(zip(cols, row))
+            tc = d.get("transaction_count")
+            ta = d.get("total_amount")
+            ltd = d.get("last_transaction_date")
+            result.append({
+                "account_id": str(d.get("account_id", "")),
+                "risk_score": float(d.get("risk_score", 0)),
+                "transaction_id": str(d.get("transaction_id", "")),
+                "timestamp": str(d.get("timestamp") or ""),
+                "amount": float(d.get("amount", 0)),
+                "summary_text": d.get("summary_text"),
+                "transaction_count": int(tc) if tc is not None else None,
+                "total_amount": float(ta) if ta is not None else None,
+                "last_transaction_date": str(ltd) if ltd is not None else None,
+            })
+        return result
+    except Exception as e:
+        raise RuntimeError(f"flagged accounts fetch failed: {e}") from e
+    finally:
+        conn.close()
+
+
 def get_account_highest_risk_row(account_id: str) -> Optional[Dict[str, Any]]:
     """Return the single prediction row for this account with the highest risk_score (for explain)."""
     init_db()
