@@ -7,7 +7,6 @@ import {
   ArrowLeft,
   FileDown,
   Loader2,
-  Network,
   DollarSign,
   Hash,
 } from 'lucide-react';
@@ -229,9 +228,7 @@ export default function Sidebar({
   };
 
   return (
-    <div
-      className={`relative h-full w-full overflow-hidden border-l p-6 shadow-2xl transition-colors duration-300 ${panelClasses}`}
-    >
+    <div className={`relative h-full w-full overflow-y-auto border-l p-6 shadow-2xl transition-colors duration-300 scrollbar-thin scrollbar-thumb-[#efe39a] dark:scrollbar-thumb-[#705f19] scrollbar-track-transparent ${panelClasses}`}>
       <div
         role="separator"
         aria-label="Resize sidebar"
@@ -244,7 +241,7 @@ export default function Sidebar({
         />
       </div>
 
-      <div className="flex h-full flex-col overflow-hidden">
+      <div className="flex min-h-full flex-col">
         <div className="mb-5 flex shrink-0 items-start justify-between gap-3">
           <div>
             <h2 className={`text-xl font-bold tracking-tight ${titleClasses}`}>
@@ -342,7 +339,10 @@ export default function Sidebar({
                   className={`rounded-2xl border p-4 transition-colors ${surfaceClasses}`}
                 >
                   <div className={`mb-2 flex items-center gap-2 ${mutedTextClasses}`}>
-                    <Network size={16} />
+                    <span
+                      aria-hidden="true"
+                      className={`inline-block h-2.5 w-2.5 rounded-full ${isDarkMode ? 'bg-[#d9c874]' : 'bg-[#6a5a35]'}`}
+                    />
                     <span className="text-xs uppercase tracking-[0.16em]">
                       Counterparties
                     </span>
@@ -501,7 +501,7 @@ export default function Sidebar({
             </div>
 
             <div
-              className={`mt-6 flex min-h-0 flex-1 flex-col border-t pt-6 transition-colors ${
+              className={`mt-6 flex flex-col border-t pt-6 transition-colors ${
                 isDarkMode ? 'border-[#5c4a11]' : 'border-[#efe39a]'
               }`}
             >
@@ -535,7 +535,7 @@ export default function Sidebar({
                 </span>
               </div>
 
-              <div className="scrollbar-thin scrollbar-track-transparent scrollbar-thumb-[#efe39a] dark:scrollbar-thumb-[#705f19] flex-1 space-y-2 overflow-y-auto pb-4 pr-2">
+              <div className="space-y-2 pb-4 pr-2">
                 {filteredTransactions.length === 0 ? (
                   <p className={`text-sm italic ${mutedTextClasses}`}>
                     {accountTransactions.length === 0

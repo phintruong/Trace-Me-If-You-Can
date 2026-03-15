@@ -1,9 +1,9 @@
 'use client';
 
-import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useState } from 'react';
+import { type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import Sidebar from './components/Sidebar';
-import { type GraphData, loadGraphFromCSV } from './lib/api';
+import { type GraphData, type GraphNode, loadGraphFromCSV } from './lib/api';
 import { Moon, Sun, Search, Loader2 } from 'lucide-react';
 
 const NetworkGraph = dynamic(() => import('./components/NetworkGraph'), { ssr: false });
@@ -20,6 +20,17 @@ export default function Dashboard() {
   const [viewMode, setViewMode] = useState<'3d' | '2d'>('3d');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const topLaunderingNodes = useMemo(() => {
+    return graphData.nodes
+      .filter((node) => node.risk === 'laundering')
+      .sort((a, b) => {
+        const riskDelta = (b.riskScore ?? -Infinity) - (a.riskScore ?? -Infinity);
+        if (riskDelta !== 0) return riskDelta;
+        return (b.txCount ?? 0) - (a.txCount ?? 0);
+      })
+      .slice(0, 3);
+  }, [graphData.nodes]);
 
   // Load data from CSV files in public/data/
   const loadData = useCallback(async () => {
@@ -57,6 +68,10 @@ export default function Dashboard() {
     } else {
       alert(`Account "${term}" not found in current network.`);
     }
+  };
+
+  const focusNode = (node: GraphNode) => {
+    setSelectedAccount(node);
   };
 
   useEffect(() => {
@@ -158,6 +173,50 @@ export default function Dashboard() {
             />
           )}
         </div>
+
+        {!loading && !error && topLaunderingNodes.length > 0 && (
+          <div className="absolute left-5 top-5 z-20 w-72">
+            <div
+              className={`rounded-xl border p-3 backdrop-blur-md ${
+                isDarkMode ? 'border-[#2D1E2F]' : 'border-[#e7da7d] shadow-sm'
+              }`}
+              style={isDarkMode ? { backgroundColor: 'rgba(18, 12, 19, 0.88)' } : { backgroundColor: 'rgba(255, 251, 224, 0.92)' }}
+            >
+              <div className="mb-2">
+                <p className={`text-xs font-semibold uppercase tracking-[0.24em] ${isDarkMode ? 'text-[#d9c874]' : 'text-[#6a5a35]'}`}>
+                  Top Laundering Nodes
+                </p>
+              </div>
+              <div className="space-y-2">
+                {topLaunderingNodes.map((node, index) => (
+                  <button
+                    key={node.id}
+                    type="button"
+                    onClick={() => focusNode(node)}
+                    className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left transition-colors ${
+                      isDarkMode
+                        ? 'border-[#5c4a11] bg-[#1b121d] hover:border-[#d9c874] hover:bg-[#261928]'
+                        : 'border-[#e7da7d] bg-[#fffdf1] hover:border-[#cdbf5e] hover:bg-[#fff7cc]'
+                    }`}
+                  >
+                    <div>
+                      <p className={`text-xs font-semibold uppercase tracking-[0.22em] ${isDarkMode ? 'text-[#d9c874]' : 'text-[#6a5a35]'}`}>
+                        #{index + 1}
+                      </p>
+                      <p className={`font-mono text-sm ${isDarkMode ? 'text-[#fff7cc]' : 'text-[#2D1E2F]'}`}>{node.id}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className={`text-xs ${isDarkMode ? 'text-[#d9c874]' : 'text-[#6a5a35]'}`}>Risk</p>
+                      <p className={`text-sm font-semibold ${isDarkMode ? 'text-[#ff8b7f]' : 'text-[#b42318]'}`}>
+                        {typeof node.riskScore === 'number' ? node.riskScore.toFixed(3) : 'n/a'}
+                      </p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* 2D/3D Toggle */}
         <div className="absolute bottom-14 left-5 z-20">

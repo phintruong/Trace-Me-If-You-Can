@@ -135,6 +135,8 @@ function cloneGraphData(data: GraphData): GraphData {
 }
 
 export default function NetworkGraph({ data, selectedNode, onNodeClick, isDarkMode, viewMode }: NetworkGraphProps) {
+  const DEFAULT_2D_ZOOM = 0.65;
+  const DEFAULT_3D_DISTANCE = 420;
   const fgRef = useRef<ForceGraphHandle | null>(null);
   const fg2dRef = useRef<any>(null);
   const [hoverNode, setHoverNode] = useState<SimulationNode | null>(null);
@@ -303,6 +305,46 @@ export default function NetworkGraph({ data, selectedNode, onNodeClick, isDarkMo
     onNodeClick(node);
   }, [selectedNode, onNodeClick, viewMode]);
 
+  useEffect(() => {
+    if (viewMode === '3d') {
+      const fg = fgRef.current;
+      if (!selectedNode) {
+        fg?.cameraPosition({ x: 0, y: 0, z: DEFAULT_3D_DISTANCE }, undefined, 1000);
+        return;
+      }
+
+      const node = (data3D.nodes as SimulationNode[]).find((candidate) => candidate.id === selectedNode.id);
+      if (!fg || !node) return;
+
+      const distance = 120;
+      const distRatio = 1 + distance / Math.max(1, Math.hypot(node.x ?? 0, node.y ?? 0, node.z ?? 0));
+
+      fg.cameraPosition(
+        {
+          x: (node.x ?? 0) * distRatio,
+          y: (node.y ?? 0) * distRatio,
+          z: (node.z ?? 0) * distRatio,
+        },
+        node,
+        1000
+      );
+      return;
+    }
+
+    const fg = fg2dRef.current;
+    if (!selectedNode) {
+      fg?.centerAt(0, 0, 1000);
+      fg?.zoom(DEFAULT_2D_ZOOM, 1000);
+      return;
+    }
+
+    const node = (data2D.nodes as SimulationNode[]).find((candidate) => candidate.id === selectedNode.id);
+    if (!fg || !node) return;
+
+    fg.centerAt(node.x ?? 0, node.y ?? 0, 1000);
+    fg.zoom(4, 1000);
+  }, [selectedNode, viewMode, data3D, data2D, DEFAULT_2D_ZOOM, DEFAULT_3D_DISTANCE]);
+
   // --- 2D Canvas Rendering ---
   const paintNode2D = useCallback((node: SimulationNode, ctx: CanvasRenderingContext2D) => {
     const isSelected = selectedNode?.id === node.id;
@@ -427,14 +469,13 @@ export default function NetworkGraph({ data, selectedNode, onNodeClick, isDarkMo
   }, [selectedNode, highlightNodes, getNodeSize, getNodeColor, isDarkMode, topLaunderingNodeIds]);
 
   // --- Shared link callbacks ---
-  const linkColorFn = useCallback((link: SimulationLink) => {
-    if (highlightLinks.has(link)) return isDarkMode ? '#F7F3C5' : '#322035';
-    return isDarkMode ? 'rgba(247,243,197,0.25)' : 'rgba(50,32,53,0.25)';
-  }, [highlightLinks, isDarkMode]);
+  const linkColorFn = useCallback(() => (
+    isDarkMode ? 'rgba(247,243,197,0.35)' : 'rgba(50,32,53,0.35)'
+  ), [isDarkMode]);
 
-  const linkWidthFn = useCallback((link: SimulationLink) => highlightLinks.has(link) ? 2 : 0.4, [highlightLinks]);
+  const linkWidthFn = useCallback(() => 0.8, []);
 
-  const linkParticlesFn = useCallback((link: SimulationLink) => highlightLinks.has(link) ? 3 : 0, [highlightLinks]);
+  const linkParticlesFn = useCallback(() => 0, []);
 
   const nodeLabelFn = useCallback((node: SimulationNode) => topLaunderingNodeIds.has(node.id) ? node.id : '', [topLaunderingNodeIds]);
 
