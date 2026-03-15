@@ -13,8 +13,12 @@ One API call. Millions of transactions. A complete investigation dashboard.
 ## Demo
 
 <p align="center">
-  <img src="frontend/public/image-removebg-preview (7).png" alt="Dashboard Preview" width="700"/>
+  <a href="https://www.youtube.com/watch?v=e97v8ee3I9w">
+    <img src="frontend/public/image-removebg-preview (7).png" alt="Dashboard Preview" width="700"/>
+  </a>
 </p>
+
+**[Watch the full demo on YouTube](https://www.youtube.com/watch?v=e97v8ee3I9w)**
 
 ---
 
