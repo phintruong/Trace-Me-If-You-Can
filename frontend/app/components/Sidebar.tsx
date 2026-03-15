@@ -19,16 +19,16 @@ export default function Sidebar({
   const isMediumRisk = selectedAccount?.risk === 'suspicious';
   const panelClasses = isDarkMode
     ? 'border-slate-700 bg-slate-900 text-slate-200'
-    : 'border-slate-200 bg-white text-slate-800';
-  const titleClasses = isDarkMode ? 'text-white' : 'text-slate-900';
-  const mutedTextClasses = isDarkMode ? 'text-slate-400' : 'text-slate-500';
-  const bodyTextClasses = isDarkMode ? 'text-slate-300' : 'text-slate-700';
+    : 'border-slate-500 bg-slate-300 text-slate-900';
+  const titleClasses = isDarkMode ? 'text-white' : 'text-slate-950';
+  const mutedTextClasses = isDarkMode ? 'text-slate-400' : 'text-slate-700';
+  const bodyTextClasses = isDarkMode ? 'text-slate-300' : 'text-slate-800';
   const surfaceClasses = isDarkMode
     ? 'border-slate-700 bg-slate-800'
-    : 'border-slate-200 bg-slate-50';
+    : 'border-slate-400 bg-slate-100';
   const resizeHandleClasses = isDarkMode
     ? 'bg-slate-700 hover:bg-slate-500'
-    : 'bg-slate-200 hover:bg-slate-400';
+    : 'bg-slate-500 hover:bg-slate-700';
 
   const accountTransactions = allLinks.filter(link => {
     const sourceId = link.source.id || link.source;
@@ -50,7 +50,7 @@ export default function Sidebar({
   }, [selectedAccount?.id]);
 
   return (
-    <div className={`relative h-screen w-full overflow-hidden border-l p-6 shadow-2xl transition-colors duration-300 ${panelClasses}`}>
+    <div className={`relative h-full w-full overflow-hidden border-l p-6 shadow-2xl transition-colors duration-300 ${panelClasses}`}>
       <div
         role="separator"
         aria-label="Resize sidebar"
@@ -65,7 +65,8 @@ export default function Sidebar({
         <h2 className={`text-xl font-bold tracking-tight ${titleClasses}`}>Account Details</h2>
         <button
           onClick={onClose}
-          className={`transition-colors ${isDarkMode ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-800'}`}
+          className={`rounded-md p-2 text-4xl leading-none transition-colors ${isDarkMode ? 'text-slate-400 hover:text-white hover:bg-slate-800' : 'text-slate-700 hover:text-slate-950 hover:bg-slate-200'}`}
+          aria-label="Close sidebar"
         >
           &times;
         </button>
@@ -93,7 +94,7 @@ export default function Sidebar({
 
             <div>
               <h3 className={`mb-2 text-sm uppercase tracking-wider ${mutedTextClasses}`}>Pattern Detected</h3>
-              <p className={`font-semibold ${isDarkMode ? 'text-slate-100' : 'text-slate-800'}`}>{selectedAccount.pattern}</p>
+              <p className={`font-semibold ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>{selectedAccount.pattern}</p>
             </div>
 
             <div>
@@ -122,7 +123,7 @@ export default function Sidebar({
                 className={`w-full rounded-lg border px-3 py-2 text-sm outline-none transition-colors ${
                   isDarkMode
                     ? 'border-slate-700 bg-slate-800 text-white placeholder-slate-500 focus:border-slate-500'
-                    : 'border-slate-200 bg-slate-50 text-slate-900 placeholder-slate-400 focus:border-slate-400'
+                    : 'border-slate-500 bg-slate-100 text-slate-950 placeholder-slate-600 focus:border-slate-700'
                 }`}
               />
             </div>
@@ -150,7 +151,7 @@ export default function Sidebar({
                       className={`flex flex-col gap-1 rounded-lg border p-3 transition-colors ${
                         isDarkMode
                           ? `${surfaceClasses} hover:border-slate-500`
-                          : `${surfaceClasses} hover:border-slate-300`
+                          : `${surfaceClasses} hover:border-slate-600`
                       }`}
                     >
                       <div className="flex justify-between items-center">
@@ -158,7 +159,7 @@ export default function Sidebar({
                           {isOutgoing ? <ArrowRight size={14} /> : <ArrowLeft size={14} />}
                           {isOutgoing ? 'Sent to' : 'Received from'}
                         </div>
-                        <div className={`font-mono text-sm font-semibold ${isDarkMode ? 'text-slate-200' : 'text-slate-900'}`}>
+                        <div className={`font-mono text-sm font-semibold ${isDarkMode ? 'text-slate-200' : 'text-slate-950'}`}>
                           ${tx.amount.toLocaleString()}
                         </div>
                       </div>

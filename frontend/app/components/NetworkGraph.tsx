@@ -10,6 +10,12 @@ const CLUSTER_COLORS = [
   '#f15bb5', '#00bbf9', '#fee440', '#8ac926',
 ];
 
+const RISK_NODE_COLORS = {
+  normal: '#3772ff',
+  suspicious: '#f97316',
+  laundering: '#ef4444',
+} as const;
+
 // --- BFS connected-component clustering ---
 function computeClusters(nodes: any[], links: any[]) {
   const adj = new Map<string, Set<string>>();
@@ -144,11 +150,8 @@ export default function NetworkGraph({ data, selectedNode, onNodeClick, isDarkMo
   }, [data, clusterMap]);
 
   const getNodeColor = useCallback((node: any) => {
-    if (node.risk === 'laundering') return '#ef4444';
-    if (node.risk === 'suspicious') return '#f97316';
-    const cluster = clusterMap.get(node.id) ?? 0;
-    return CLUSTER_COLORS[cluster % CLUSTER_COLORS.length];
-  }, [clusterMap]);
+    return RISK_NODE_COLORS[node.risk as keyof typeof RISK_NODE_COLORS] ?? RISK_NODE_COLORS.normal;
+  }, []);
 
   const getNodeSize = useCallback((node: any) => {
     const degree = degreeMap.get(node.id) ?? 1;
@@ -186,7 +189,7 @@ export default function NetworkGraph({ data, selectedNode, onNodeClick, isDarkMo
     // Node circle
     ctx.beginPath();
     ctx.arc(node.x, node.y, size, 0, 2 * Math.PI);
-    ctx.fillStyle = isDimmed ? (isDarkMode ? '#1e293b' : '#cbd5e1') : color;
+    ctx.fillStyle = isDimmed ? (isDarkMode ? '#1e293b' : '#94a3b8') : color;
     ctx.globalAlpha = isDimmed ? 0.2 : 1;
     ctx.fill();
 
@@ -222,7 +225,7 @@ export default function NetworkGraph({ data, selectedNode, onNodeClick, isDarkMo
       <ForceGraph2D
         ref={fgRef}
         graphData={data}
-        backgroundColor={isDarkMode ? '#020617' : '#f8fafc'}
+        backgroundColor={isDarkMode ? '#020617' : '#cbd5e1'}
 
         // Nodes
         nodeCanvasObject={paintNode}
@@ -236,11 +239,11 @@ export default function NetworkGraph({ data, selectedNode, onNodeClick, isDarkMo
 
         // Links
         linkColor={(link: any) => {
-          if (highlightLinks.has(link)) return isDarkMode ? '#ffffff' : 'rgba(0,0,0,0.7)';
+          if (highlightLinks.has(link)) return isDarkMode ? '#ffffff' : 'rgba(15,23,42,0.78)';
           const s = typeof link.source === 'object' ? link.source.id : link.source;
           const cluster = clusterMap.get(s) ?? 0;
           const clusterColor = CLUSTER_COLORS[cluster % CLUSTER_COLORS.length];
-          return clusterColor + (isDarkMode ? '25' : '20');
+          return clusterColor + (isDarkMode ? '25' : '35');
         }}
         linkWidth={(link: any) => highlightLinks.has(link) ? 1.5 : 0.3}
 

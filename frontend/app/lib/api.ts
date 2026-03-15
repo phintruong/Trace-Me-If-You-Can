@@ -20,39 +20,36 @@ export interface GraphData {
   links: GraphLink[];
 }
 
-/**
- * Parse a CSV string handling quoted fields (e.g. aiExplanation with commas).
- * Returns an array of objects keyed by header names.
- */
 function parseCSV(text: string): Record<string, string>[] {
-  const lines = text.trim().split('\n');
-  if (lines.length < 2) return [];
+  const parsedRows = parseCsvRows(text);
+  if (parsedRows.length < 2) return [];
 
-  const headers = parseCsvLine(lines[0]);
-  const rows: Record<string, string>[] = [];
+  const [headers, ...dataRows] = parsedRows;
+  const result: Record<string, string>[] = [];
 
-  for (let i = 1; i < lines.length; i++) {
-    const values = parseCsvLine(lines[i]);
+  for (const values of dataRows) {
     const row: Record<string, string> = {};
     for (let j = 0; j < headers.length; j++) {
       row[headers[j]] = values[j] ?? '';
     }
-    rows.push(row);
+    result.push(row);
   }
-  return rows;
+  return result;
 }
 
-/** Parse a single CSV line respecting quoted fields. */
-function parseCsvLine(line: string): string[] {
-  const fields: string[] = [];
+function parseCsvRows(text: string): string[][] {
+  const rows: string[][] = [];
+  const input = text.replace(/^\uFEFF/, '');
+  let currentRow: string[] = [];
   let current = '';
   let inQuotes = false;
 
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+
     if (inQuotes) {
       if (ch === '"') {
-        if (i + 1 < line.length && line[i + 1] === '"') {
+        if (i + 1 < input.length && input[i + 1] === '"') {
           current += '"';
           i++;
         } else {
@@ -65,15 +62,31 @@ function parseCsvLine(line: string): string[] {
       if (ch === '"') {
         inQuotes = true;
       } else if (ch === ',') {
-        fields.push(current);
+        currentRow.push(current);
+        current = '';
+      } else if (ch === '\n') {
+        currentRow.push(current);
+        rows.push(currentRow);
+        currentRow = [];
+        current = '';
+      } else if (ch === '\r') {
+        if (input[i + 1] === '\n') continue;
+        currentRow.push(current);
+        rows.push(currentRow);
+        currentRow = [];
         current = '';
       } else {
         current += ch;
       }
     }
   }
-  fields.push(current);
-  return fields;
+
+  if (current.length > 0 || currentRow.length > 0) {
+    currentRow.push(current);
+    rows.push(currentRow);
+  }
+
+  return rows.filter((row) => row.some((value) => value.length > 0));
 }
 
 function toRisk(value: string): 'normal' | 'suspicious' | 'laundering' {
@@ -81,17 +94,24 @@ function toRisk(value: string): 'normal' | 'suspicious' | 'laundering' {
   return 'normal';
 }
 
+const CSV_BASE_PATHS = ['/data', '/node_data'] as const;
+
+async function loadCsvText(fileName: 'nodes.csv' | 'edges.csv'): Promise<string> {
+  for (const basePath of CSV_BASE_PATHS) {
+    const response = await fetch(`${basePath}/${fileName}`);
+    if (response.ok) {
+      return response.text();
+    }
+  }
+
+  throw new Error(`Could not load ${fileName}`);
+}
+
 export async function loadGraphFromCSV(): Promise<GraphData> {
-  const [nodesRes, edgesRes] = await Promise.all([
-    fetch('/node_data/nodes.csv'),
-    fetch('/node_data/edges.csv'),
+  const [nodesText, edgesText] = await Promise.all([
+    loadCsvText('nodes.csv'),
+    loadCsvText('edges.csv'),
   ]);
-
-  if (!nodesRes.ok) throw new Error('Could not load nodes.csv');
-  if (!edgesRes.ok) throw new Error('Could not load edges.csv');
-
-  const nodesText = await nodesRes.text();
-  const edgesText = await edgesRes.text();
 
   const nodesRaw = parseCSV(nodesText);
   const edgesRaw = parseCSV(edgesText);
