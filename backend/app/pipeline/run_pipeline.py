@@ -20,6 +20,7 @@ from app.config import (
 from app.pipeline.loader import load_dataset
 from app.pipeline.preprocess import preprocess
 from app.pipeline.graph_builder import build_graph_from_raw, detect_patterns
+from app.pipeline.graph_analysis import run_graph_analysis
 from app.pipeline.gnn_runner import run_gnn
 from app.pipeline.railtracks_explainer import run_railtracks_explainer
 from app.services.db_client import init_db, save_predictions
@@ -100,6 +101,25 @@ def run_pipeline(
         max_flagged=max_flagged,
     )
 
+    # Run graph analysis: communities, roles, flows
+    logger.info("Running graph analysis (clusters, roles, flows)...")
+    analysis = run_graph_analysis(graph_nodes, graph_edges, account_risk_scores)
+    logger.info(
+        "Graph analysis done: %d clusters, %d roles, %d top flows",
+        len(analysis["clusters"]),
+        len(analysis["roles"]),
+        len(analysis["top_flows"]),
+    )
+
+    # Enrich flagged accounts with role and cluster info
+    for fa in flagged_accounts:
+        acc = fa["account_id"]
+        role_info = analysis["roles"].get(acc, {})
+        fa["role"] = role_info.get("role", "unknown")
+        fa["cluster_id"] = analysis["account_cluster"].get(acc)
+        fa["fan_in"] = role_info.get("fan_in", 0)
+        fa["fan_out"] = role_info.get("fan_out", 0)
+
     api_output = {
         "flagged_accounts": [
             {
@@ -110,14 +130,22 @@ def run_pipeline(
                 "risk_agent_summary": fa["risk_agent_summary"],
                 "investigator_explanation": fa["investigator_explanation"],
                 "graph_connections": fa["graph_connections"],
+                "role": fa.get("role", "unknown"),
+                "cluster_id": fa.get("cluster_id"),
+                "fan_in": fa.get("fan_in", 0),
+                "fan_out": fa.get("fan_out", 0),
             }
             for fa in flagged_accounts
         ],
         "graph": {"nodes": graph_nodes, "edges": graph_edges},
+        "analysis": analysis,
+        "account_risk_scores": account_risk_scores,
         "meta": {
             "total_flagged": len(flagged_accounts),
             "total_nodes": len(graph_nodes),
             "total_edges": len(graph_edges),
+            "total_clusters": len(analysis["clusters"]),
+            "total_flows": len(analysis["top_flows"]),
         },
     }
     _last_run_output = api_output

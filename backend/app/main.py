@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
-from app.api import account, pipeline, export as export_api
+from app.api import account, pipeline, export as export_api, insights
 from app.api.pipeline import get_flagged_view, get_graph_view
 from app.config import MODEL_PATH, MODEL_URL
 from app.services.db_client import init_db
@@ -48,6 +48,7 @@ app.add_middleware(RequestIDMiddleware)
 app.include_router(account.router, prefix="/accounts", tags=["accounts"])
 app.include_router(pipeline.router)
 app.include_router(export_api.router)
+app.include_router(insights.router)
 
 
 @app.get("/flagged")

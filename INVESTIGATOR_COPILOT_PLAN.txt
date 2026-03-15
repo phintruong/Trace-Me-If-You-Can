@@ -1,0 +1,483 @@
+================================================================================
+          INVESTIGATOR COPILOT - SYSTEM DESIGN & IMPLEMENTATION PLAN
+                          GenAI-Genesis AML Platform
+================================================================================
+
+CONTEXT
+-------
+GenAI-Genesis currently runs a pipeline (CSV -> GNN -> Railtracks agents -> API)
+that flags suspicious accounts and displays them on a dashboard. This plan adds
+a case management and AI investigation system on top, transforming the platform
+into a Palantir-style financial crime investigation copilot.
+
+The existing pipeline already produces everything needed:
+  - Graph edges with from/to/amount
+  - Per-account risk scores (0-1)
+  - Pattern labels (circular, hub, rapid_movement)
+  - LLM infrastructure (_call_llm in railtracks_explainer.py)
+
+Storage: JSON files on disk (no database for case data). Each case is a
+self-contained JSON file in backend/outputs/cases/.
+
+All work is BACKEND-ONLY (no frontend changes).
+
+
+================================================================================
+                         IMPLEMENTATION PHASES
+================================================================================
+
+--------------------------------------------------------------------------------
+PHASE 1: JSON CASE STORE (foundation)
+--------------------------------------------------------------------------------
+
+New file: backend/app/services/case_store.py
+
+A simple file-based storage layer. Each case is stored as one JSON file at
+backend/outputs/cases/{case_id}.json.
+
+Case JSON structure:
+{
+    "case_id": "CASE-20260314-a1b2c3d4",
+    "title": "Suspicious cluster around account 8839382",
+    "status": "OPEN",                  // OPEN | UNDER_REVIEW | ESCALATED | CLOSED
+    "priority": "HIGH",               // LOW | MEDIUM | HIGH | CRITICAL
+    "primary_account_id": "8839382",
+    "risk_score": 0.92,
+    "ai_summary": "...",
+    "pattern_summary": "...",
+    "risk_summary": "...",
+    "accounts": [
+        {"account_id": "8839382", "role": "hub", "risk_score": 0.92},
+        {"account_id": "7712001", "role": "source", "risk_score": 0.78}
+    ],
+    "patterns": [
+        {
+            "pattern_type": "circular",
+            "description": "Bidirectional flow between accounts 8839382 and 7712001",
+            "involved_accounts": ["8839382", "7712001"]
+        }
+    ],
+    "notes": [
+        {
+            "id": 1,
+            "author": "investigator",
+            "content": "Reviewed graph, confirmed circular pattern",
+            "created_at": "2026-03-14T10:30:00Z"
+        }
+    ],
+    "timeline": [
+        {
+            "event_type": "transfer",
+            "timestamp": "2026-03-14T09:00:00Z",
+            "account_id": "7712001",
+            "counterparty_id": "8839382",
+            "amount": 5000.0,
+            "description": "Transfer from source to hub account",
+            "significance": "high"
+        }
+    ],
+    "created_at": "2026-03-14T10:00:00Z",
+    "updated_at": "2026-03-14T10:00:00Z",
+    "closed_at": null
+}
+
+Functions to implement:
+  - save_case(case: dict)              -> write JSON to CASES_DIR/{case_id}.json
+  - get_case(case_id: str)             -> read single JSON file, return dict or None
+  - list_cases(status, min_risk, ...)  -> glob *.json, load all, filter/sort, return summaries
+  - update_case(case_id, updates)      -> read, merge, write back
+  - add_note(case_id, author, content) -> read case, append to notes list, write back
+  - set_timeline(case_id, events)      -> read case, set timeline, write back
+  - get_cases_for_account(account_id)  -> scan all cases, return those containing account
+
+
+--------------------------------------------------------------------------------
+PHASE 2: PYDANTIC SCHEMAS
+--------------------------------------------------------------------------------
+
+Modify: backend/app/schemas.py
+
+Add after existing schemas:
+
+Enums:
+  - CaseStatus: OPEN, UNDER_REVIEW, ESCALATED, CLOSED
+  - CasePriority: LOW, MEDIUM, HIGH, CRITICAL
+  - AccountRole: source, mule, hub, sink, unknown
+
+Item models:
+  - CaseAccountItem: account_id, role, risk_score
+  - CasePatternItem: pattern_type, description, involved_accounts
+  - CaseNoteItem: id, author, content, created_at
+  - TimelineEvent: event_type, timestamp, account_id, counterparty_id,
+                   amount, description, significance
+
+Response models:
+  - CaseSummary: case_id, title, status, priority, primary_account_id,
+                 risk_score, account_count, created_at (lightweight for list)
+  - CaseDetail: full case with accounts, patterns, notes, timeline
+
+Request models:
+  - CaseCreateRequest: account_id, optional title
+  - CaseUpdateRequest: optional status, optional priority
+  - CaseNoteCreateRequest: content, author
+  - CopilotRequest: question
+
+AI models:
+  - CopilotResponse: answer, context_used (list of data sources)
+  - CaseGenerateResponse: cases_created, case_ids
+
+
+--------------------------------------------------------------------------------
+PHASE 3: SHARED LLM CLIENT
+--------------------------------------------------------------------------------
+
+New file: backend/app/services/llm_client.py
+
+Extract _call_llm() from railtracks_explainer.py (lines 22-53) into a shared
+module with the same logic:
+
+  def call_llm(system: str, user: str, model_gemini: str = "gemini/gemini-2.0-flash") -> str:
+      # 1. Try LiteLLM with Gemini (if GEMINI_API_KEY set)
+      # 2. Fallback to Railtracks SDK
+      # 3. Last resort: static message
+
+Modify: backend/app/pipeline/railtracks_explainer.py
+  - Replace _call_llm with: from app.services.llm_client import call_llm
+
+
+--------------------------------------------------------------------------------
+PHASE 4: CASE BUILDER SERVICE (core intelligence)
+--------------------------------------------------------------------------------
+
+New file: backend/app/services/case_builder.py
+
+This is the most important new file. Contains graph analysis algorithms and
+case construction logic.
+
+ALGORITHM: Subgraph Extraction (BFS)
+  def extract_subgraph(account_id, graph_edges, account_risk_scores,
+                       max_depth=3, risk_floor=0.3, max_accounts=50):
+      - Build adjacency dict from graph_edges (both directions)
+      - BFS from account_id
+      - Only follow edges to accounts with risk_score >= risk_floor
+      - Stop at max_depth or max_accounts
+      - Returns: set of related account_ids, list of subgraph edges
+
+ALGORITHM: Role Assignment
+  def assign_role(account_id, subgraph_edges) -> str:
+      - Compute inflow, outflow, in_degree, out_degree from subgraph edges
+      - total_degree >= 10         -> "hub"
+      - outflow > 0, inflow == 0   -> "source"
+      - inflow > 0, outflow == 0   -> "sink"
+      - similar in/out amounts     -> "mule" (pass-through)
+      - else                       -> "unknown"
+
+ALGORITHM: Money Path Discovery
+  def find_money_paths(source_id, edges, max_depth=6) -> list[list[str]]:
+      - DFS from source following outgoing edges
+      - Track visited per-path to detect cycles
+      - Return paths of length >= 3
+      - Used to identify layering chains
+
+ALGORITHM: Priority Computation
+  def compute_priority(risk_score, pattern_count, related_count) -> str:
+      - risk >= 0.9 or patterns >= 3  -> CRITICAL
+      - risk >= 0.7 or patterns >= 2  -> HIGH
+      - risk >= 0.5                   -> MEDIUM
+      - else                          -> LOW
+
+MAIN ORCHESTRATOR:
+  def build_case(account_id, account_risk_scores, graph_edges, account_patterns) -> str:
+      1. Extract subgraph via BFS
+      2. Assign roles to each account in subgraph
+      3. Collect patterns from existing account_patterns + detect new (layering paths)
+      4. Compute priority
+      5. Generate case_id: "CASE-{YYYYMMDD}-{uuid4[:8]}"
+      6. Build full case dict
+      7. Generate AI summary via copilot_agent.generate_case_summary()
+      8. Save via case_store.save_case()
+      9. Return case_id
+
+  def generate_cases_from_pipeline(flagged_accounts, account_risk_scores,
+                                    graph_edges, account_patterns,
+                                    threshold=0.7) -> list[str]:
+      - For each flagged account above threshold:
+          - Skip if account already has an OPEN case (dedup)
+          - Call build_case()
+      - Return list of case_ids
+
+
+--------------------------------------------------------------------------------
+PHASE 5: API ENDPOINTS
+--------------------------------------------------------------------------------
+
+New file: backend/app/api/cases.py
+
+Endpoints:
+  POST /cases/generate              Auto-generate cases from last pipeline run
+  POST /cases/create/{account_id}   Manual case creation for specific account
+  GET  /cases                       List cases with filters (status, min_risk, limit, offset)
+  GET  /cases/{case_id}             Full case detail
+  PATCH /cases/{case_id}            Update status and/or priority
+  POST /cases/{case_id}/notes       Add investigator note
+  GET  /cases/{case_id}/graph       Subgraph (nodes + edges) for case accounts
+  GET  /cases/{case_id}/timeline    Chronological timeline events
+  POST /cases/{case_id}/copilot     AI copilot query about the case
+  GET  /cases/{case_id}/export      Export case report as PDF
+
+Implementation notes:
+  - POST /cases/generate reads _last_run_output from run_pipeline.py
+    (same pattern as existing /flagged endpoint)
+  - GET /cases/{id}/graph filters edges from _last_run_output["graph"]
+    to only case account IDs, builds GraphNode/GraphEdge lists
+  - All reads/writes go through case_store.py functions
+
+Modify: backend/app/main.py (add 2 lines):
+  from app.api import cases as cases_api
+  app.include_router(cases_api.router)
+
+
+--------------------------------------------------------------------------------
+PHASE 6: PIPELINE INTEGRATION (auto-generate cases)
+--------------------------------------------------------------------------------
+
+Modify: backend/app/pipeline/run_pipeline.py
+
+After line 123 (_last_run_output = api_output), add auto-generation.
+Wrapped in try/except so it NEVER breaks the existing pipeline:
+
+  try:
+      from app.services.case_builder import generate_cases_from_pipeline
+      case_ids = generate_cases_from_pipeline(
+          flagged_accounts=flagged_accounts,
+          account_risk_scores=account_risk_scores,
+          graph_edges=graph_edges,
+          account_patterns=account_patterns,
+          risk_threshold=threshold,
+      )
+      api_output["cases_generated"] = len(case_ids)
+      api_output["case_ids"] = case_ids
+  except Exception as e:
+      logger.warning("Case generation failed (non-fatal): %s", e)
+      api_output["cases_generated"] = 0
+
+Also store extra data in _last_run_output for manual case creation:
+  api_output["_account_risk_scores"] = account_risk_scores
+  api_output["_account_patterns"] = account_patterns
+
+
+--------------------------------------------------------------------------------
+PHASE 7: COPILOT AGENT
+--------------------------------------------------------------------------------
+
+New file: backend/app/services/copilot_agent.py
+
+  def ask_copilot(case_id: str, question: str) -> dict:
+      1. Load full case from case_store.get_case()
+      2. Build context string from all case data
+      3. Detect question type for prompt routing:
+         - "summarize"/"summary"           -> summary generation prompt
+         - "explain"/"why"/"chain"         -> transaction chain explanation
+         - "next"/"recommend"/"steps"      -> investigation next-steps
+         - "sar"/"report"/"filing"         -> SAR-ready narrative (FinCEN format)
+         - default                         -> general case Q&A
+      4. Call call_llm() with case-aware system prompt
+      5. Return {"answer": str, "context_used": ["case_data", "patterns", ...]}
+
+  def generate_case_summary(case: dict) -> str:
+      - Build context from case data
+      - Call call_llm() with summary-focused prompt
+      - Return summary text (saved into case["ai_summary"])
+
+System prompt template:
+  You are an AML investigation copilot. Case data:
+  - Case: {case_id}, Status: {status}, Risk: {risk_score}
+  - Primary Account: {primary_account_id}
+  - Related Accounts ({n}): {accounts with roles}
+  - Patterns: {pattern descriptions}
+  - Timeline: {n_events} events, {timeline_summary}
+  - Notes: {investigator_notes}
+
+  Answer the investigator's question. Be specific - cite account IDs and amounts.
+  If asked for a SAR narrative, use FinCEN SAR format.
+
+
+--------------------------------------------------------------------------------
+PHASE 8: TIMELINE BUILDER
+--------------------------------------------------------------------------------
+
+New file: backend/app/services/timeline_builder.py
+
+  def build_timeline(case: dict, graph_edges: list[dict]) -> list[dict]:
+      1. Collect all edges involving case account IDs from graph_edges
+      2. Sort by available timestamp or amount as proxy
+      3. Classify events:
+         - Account with only outgoing edges -> "source_deposit"
+         - One sender -> multiple receivers  -> "split" (fanout)
+         - Multiple senders -> one receiver  -> "recombination" (fanin)
+         - Transfers between case accounts   -> "layering_transfer"
+         - Account with only incoming edges  -> "terminal_withdrawal"
+         - Default                           -> "transfer"
+      4. Assign significance:
+         - Amount > 2x median -> "high"
+         - Risk > 0.8         -> "high"
+         - Otherwise          -> "medium" or "low"
+      5. Return ordered list of TimelineEvent dicts
+
+Note: graph_edges from build_graph_from_raw() carry from/to/amount but no
+timestamps. Timeline classifies primarily by flow structure (fanout/fanin/cycles).
+
+
+--------------------------------------------------------------------------------
+PHASE 9: CASE REPORT EXPORT
+--------------------------------------------------------------------------------
+
+Modify: backend/app/services/export_service.py
+
+Add generate_case_report(case_id, format="pdf") alongside existing
+generate_flagged_accounts_report. Reuses existing ReportLab infrastructure
+(_risk_color, table styles, page layout).
+
+Report sections:
+  1. Cover page (case ID, status, date, primary account)
+  2. Executive summary (AI-generated ai_summary from case)
+  3. Account table (all case accounts with roles + risk scores)
+  4. Transaction timeline (events from case timeline)
+  5. Network analysis (detected patterns with descriptions)
+  6. Investigator notes (from case notes)
+  7. Recommended actions (derived from priority + patterns)
+  8. Methodology disclaimer
+
+
+================================================================================
+                              FILES SUMMARY
+================================================================================
+
+  NEW FILES:
+  ----------
+  backend/app/services/case_store.py       JSON file-based case storage (~6 functions)
+  backend/app/services/llm_client.py       Shared call_llm() from railtracks
+  backend/app/services/case_builder.py     BFS, role assignment, path finding, orchestration
+  backend/app/services/copilot_agent.py    AI copilot with case-aware prompts
+  backend/app/services/timeline_builder.py Transaction timeline reconstruction
+  backend/app/api/cases.py                 10 REST endpoints for case management
+
+  MODIFIED FILES:
+  ---------------
+  backend/app/schemas.py                   ~15 new Pydantic models + 3 enums
+  backend/app/main.py                      2 lines: import + include_router
+  backend/app/pipeline/run_pipeline.py     ~10 lines: auto-gen cases + cache extra data
+  backend/app/pipeline/railtracks_explainer.py  Replace _call_llm with shared import
+  backend/app/services/export_service.py   1 new function: generate_case_report()
+
+  STORAGE:
+  --------
+  backend/outputs/cases/*.json             One JSON file per investigation case
+
+
+================================================================================
+                          REUSED COMPONENTS
+================================================================================
+
+  - graph_builder.detect_patterns()     -> circular/hub/rapid_movement labels
+  - graph_builder.build_graph_from_raw() -> edge format (from/to/amount)
+  - _call_llm() from railtracks         -> extracted to shared module
+  - export_service ReportLab infra      -> risk colors, table styles, page layout
+  - _last_run_output cache              -> case API reads from same in-memory cache
+  - PipelineResult dataclass            -> risk scores, edges, patterns feed case builder
+
+
+================================================================================
+                              DEMO FLOW
+================================================================================
+
+  1.  POST /pipeline/run
+      -> Runs existing pipeline, now also auto-generates cases
+
+  2.  GET /cases
+      -> Shows list of generated cases with status/risk/priority
+
+  3.  GET /cases/{id}
+      -> Full case: accounts with roles, patterns, AI summary
+
+  4.  GET /cases/{id}/graph
+      -> Subgraph for network visualization
+
+  5.  GET /cases/{id}/timeline
+      -> Chronological money movement events
+
+  6.  POST /cases/{id}/copilot  {"question": "Summarize this case"}
+      -> AI generates investigation summary
+
+  7.  POST /cases/{id}/copilot  {"question": "Generate a SAR narrative"}
+      -> AI produces FinCEN-style compliance output
+
+  8.  POST /cases/{id}/notes    {"content": "Confirmed circular pattern A->B->C->A"}
+      -> Investigator adds notes to case
+
+  9.  PATCH /cases/{id}         {"status": "ESCALATED"}
+      -> Status update
+
+  10. GET /cases/{id}/export?format=pdf
+      -> Downloads SAR-style investigation report
+
+
+================================================================================
+                          VERIFICATION PLAN
+================================================================================
+
+  1. After pipeline run, check backend/outputs/cases/ contains JSON files
+  2. POST /pipeline/run response includes cases_generated > 0
+  3. GET /cases returns non-empty list with correct schema
+  4. GET /cases/{id} returns accounts with roles, patterns, summary
+  5. GET /cases/{id}/graph returns nodes/edges for case accounts only
+  6. GET /cases/{id}/timeline returns ordered events
+  7. POST /cases/{id}/copilot returns meaningful AI answer
+  8. POST /cases/{id}/notes persists and appears in GET /cases/{id}
+  9. PATCH /cases/{id} updates status, reflected in subsequent GET
+  10. GET /cases/{id}/export returns valid PDF with case sections
+
+
+================================================================================
+                     PRIORITY ORDER (if time-constrained)
+================================================================================
+
+  MVP (Phases 1-6):
+    Case store + schemas + LLM client + case builder + API + pipeline integration
+    -> Auto-generated cases, listing, detail, graph endpoints
+
+  HIGH-IMPACT ADD (Phase 7):
+    Copilot agent
+    -> Single highest demo-impact feature: interactive AI Q&A about cases
+
+  POLISH (Phases 8-9):
+    Timeline reconstruction + PDF export
+    -> Enriches case detail, provides compliance output
+
+
+================================================================================
+                     API ENDPOINT QUICK REFERENCE
+================================================================================
+
+  METHOD  PATH                          DESCRIPTION
+  ------  ----------------------------  ------------------------------------------
+  POST    /cases/generate               Auto-generate cases from pipeline results
+  POST    /cases/create/{account_id}    Create case manually for an account
+  GET     /cases                        List cases (filter by status, risk)
+  GET     /cases/{case_id}              Full case detail
+  PATCH   /cases/{case_id}              Update status/priority
+  POST    /cases/{case_id}/notes        Add investigator note
+  GET     /cases/{case_id}/graph        Case subgraph (nodes + edges)
+  GET     /cases/{case_id}/timeline     Transaction timeline events
+  POST    /cases/{case_id}/copilot      AI copilot query
+  GET     /cases/{case_id}/export       Export PDF investigation report
+
+  (Existing endpoints remain unchanged)
+  POST    /pipeline/run                 Run AML pipeline (now also generates cases)
+  GET     /flagged                      List flagged accounts
+  GET     /graph/{id}                   Full transaction graph
+  GET     /accounts/{id}               Account detail + AI explanation
+  GET     /export/flagged-accounts/pdf  Flagged accounts PDF report
+  GET     /health                       Health check
+
+================================================================================

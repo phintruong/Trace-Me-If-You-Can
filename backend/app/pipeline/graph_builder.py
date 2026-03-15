@@ -21,15 +21,19 @@ def build_graph_from_raw(df: pd.DataFrame) -> tuple[list[dict], list[dict], dict
     id_to_account = {i: str(a) for a, i in account_to_id.items()}
     graph_nodes = [{"id": str(acc), "label": str(acc)} for acc in accounts]
     amount_col = "Amount Paid" if "Amount Paid" in df.columns else "Amount Received"
+    has_timestamp = "Timestamp" in df.columns
     edges = []
     for _, row in df.iterrows():
         src = str(row[from_col])
         dst = str(row[to_col])
         amount = float(row.get(amount_col, 0))
-        edges.append({
+        edge: dict = {
             "from": src, "to": dst, "amount": amount,
             "from_id": account_to_id.get(src), "to_id": account_to_id.get(dst),
-        })
+        }
+        if has_timestamp:
+            edge["timestamp"] = str(row["Timestamp"])
+        edges.append(edge)
     return graph_nodes, edges, account_to_id, id_to_account
 
 

@@ -56,3 +56,52 @@ class GraphDataResponse(BaseModel):
 class ExplainResponse(BaseModel):
     summary: str
     model: str
+
+
+# --- Insights models ---
+
+class ClusterSummary(BaseModel):
+    cluster_id: int
+    size: int
+    risk_score: float
+    avg_risk: float
+    max_risk: float
+    accounts: List[str]
+
+
+class ClusterDetail(ClusterSummary):
+    nodes: List[dict]
+    edges: List[dict]
+    roles: dict
+
+
+class FlowPath(BaseModel):
+    accounts: List[str]
+    transactions: List[dict]
+    path_length: int
+    total_value: float
+    avg_risk: float
+    path_score: float
+    direction: Optional[str] = None
+    roles: List[str]
+
+
+class TimelineEvent(BaseModel):
+    timestamp: str = ""
+    direction: str
+    counterparty: str
+    amount: float
+    counterparty_risk: float
+    running_balance: float
+
+
+class RoleInfo(BaseModel):
+    account_id: str
+    role: str
+    fan_in: int
+    fan_out: int
+    total_degree: int
+    in_value: float
+    out_value: float
+    risk_score: float = Field(ge=0, le=1)
+    cluster_id: Optional[int] = None
