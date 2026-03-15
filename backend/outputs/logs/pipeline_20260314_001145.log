@@ -1,5 +1,0 @@
-2026-03-14 00:11:45 | INFO    | Log file: C:\Users\mamin\Desktop\GenAI-Genesis\outputs\logs\pipeline_20260314_001145.log
-2026-03-14 00:11:45 | INFO    | Loading dataset: C:\Users\mamin\Desktop\GenAI-Genesis\kagglehub_cache\datasets\ealtman2019\ibm-transactions-for-anti-money-laundering-aml\versions\8\HI-Small_Trans.csv
-2026-03-14 00:11:50 | INFO    | Loaded 5,078,345 rows and 11 columns
-2026-03-14 00:11:54 | INFO    | Model matrix ready: X=(5078345, 13), y=(5078345,)
-2026-03-14 00:12:02 | INFO    | Saved test predictions: C:\Users\mamin\Desktop\GenAI-Genesis\outputs\rf_eval_predictions_20260314_001201.csv
