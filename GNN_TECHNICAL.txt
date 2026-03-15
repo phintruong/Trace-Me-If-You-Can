@@ -1,0 +1,389 @@
+GNN TECHNICAL DOCUMENTATION — GenAI-Genesis
+=============================================
+
+1. MODEL ARCHITECTURES
+-----------------------
+
+Three GNN architectures are implemented in gnn_models.py. The active production model is GraphSAGE.
+
+A. GCN_AML (Graph Convolutional Network)
+  - Layers: Stack of GCNConv -> BatchNorm1d -> ReLU -> Dropout
+  - Hidden dim: 64
+  - Num layers: 3
+  - Dropout: 0.3
+  - Output: Linear(hidden_dim, 2) -> LogSoftmax
+  - Classification: Binary (laundering vs normal)
+
+B. GraphSAGE_AML  *** ACTIVE PRODUCTION MODEL ***
+  - Layers: Stack of SAGEConv -> BatchNorm1d -> ReLU -> Residual Add -> Dropout
+  - Hidden dim: 128 (run_1 active model)
+  - Num layers: 3
+  - Dropout: 0.5 (run_1 active model)
+  - Aggregation: "max" (max-pooling over neighbors)
+  - Residual connections: Added when input/output dimensions match (x + x_prev)
+  - Output: Linear(hidden_dim, 2) -> LogSoftmax
+  - Classification: Binary (laundering vs normal)
+
+C. GAT_AML (Graph Attention Network)
+  - Layers: Stack of GATConv with multi-head attention -> ELU -> Dropout
+  - Hidden dim: 64
+  - Num layers: 2
+  - Attention heads: 2
+  - GAT concat: False (heads averaged, not concatenated)
+  - Dropout: 0.3
+  - Output: Linear(hidden_dim, 2) -> LogSoftmax
+
+
+2. COMPLETE FEATURE LIST (58 DIMENSIONS)
+-----------------------------------------
+
+The GNN takes a 58-dimensional feature vector per account node, split into two blocks.
+
+=== BLOCK A: BEHAVIORAL FEATURES (54 dimensions) ===
+
+Raw Transaction Statistics (10 features):
+  1.  out_count                   — Number of outgoing transactions
+  2.  in_count                    — Number of incoming transactions
+  3.  out_amount_sum              — Total value of outgoing transactions
+  4.  in_amount_sum               — Total value of incoming transactions
+  5.  out_amount_mean             — Average value of outgoing transactions
+  6.  in_amount_mean              — Average value of incoming transactions
+  7.  out_amount_std              — Std deviation of outgoing transaction amounts
+  8.  in_amount_std               — Std deviation of incoming transaction amounts
+  9.  out_amount_max              — Maximum outgoing transaction amount
+  10. in_amount_max               — Maximum incoming transaction amount
+
+Unique Contact Features (6 features):
+  11. out_unique_to               — Number of unique destination accounts
+  12. in_unique_from              — Number of unique source accounts
+  13. out_unique_banks            — Number of unique destination banks
+  14. in_unique_banks             — Number of unique source banks
+  15. out_unique_curr             — Number of unique outgoing currencies
+  16. in_unique_curr              — Number of unique incoming currencies
+
+Ratio & Aggregation Features (7 features):
+  17. total_count                 — out_count + in_count
+  18. net_flow                    — in_amount_sum - out_amount_sum
+  19. count_imbalance             — in_count / (out_count + 1.0)
+  20. amount_ratio_in_out         — (in_amount_sum + 1.0) / (out_amount_sum + 1.0)
+  21. log_amount_ratio_in_out     — log(amount_ratio_in_out)
+  22. unique_partners             — out_unique_to + in_unique_from
+  23. (7th ratio feature)
+
+Log-Scaled Heavy-Tail Features (21 features):
+  log1p(x) = log(1 + x) transformation applied to reduce skew from extreme values.
+
+  24. log1p_out_count
+  25. log1p_in_count
+  26. log1p_total_count
+  27. log1p_out_amount_sum
+  28. log1p_in_amount_sum
+  29. log1p_out_amount_mean
+  30. log1p_in_amount_mean
+  31. log1p_out_amount_std
+  32. log1p_in_amount_std
+  33. log1p_out_amount_max
+  34. log1p_in_amount_max
+  35. log1p_out_unique_to
+  36. log1p_in_unique_from
+  37. log1p_unique_partners
+  38. log1p_out_unique_banks
+  39. log1p_in_unique_banks
+  40. log1p_out_unique_curr
+  41. log1p_in_unique_curr
+  42-44. (additional log1p variants)
+
+Circular Time Features (12 features):
+  Cyclical encoding so the model understands that hour 23 is close to hour 0.
+
+  45. out_hour_sin_mean           — Mean of sin(2*pi * hour/24) for outgoing txns
+  46. out_hour_cos_mean           — Mean of cos(2*pi * hour/24) for outgoing txns
+  47. out_wday_sin_mean           — Mean of sin(2*pi * weekday/7) for outgoing txns
+  48. out_wday_cos_mean           — Mean of cos(2*pi * weekday/7) for outgoing txns
+  49. out_hour_conc               — Concentration/variance of hours (outgoing)
+  50. out_wday_conc               — Concentration/variance of weekdays (outgoing)
+  51. in_hour_sin_mean            — Mean of sin(2*pi * hour/24) for incoming txns
+  52. in_hour_cos_mean            — Mean of cos(2*pi * hour/24) for incoming txns
+  53. in_wday_sin_mean            — Mean of sin(2*pi * weekday/7) for incoming txns
+  54. in_wday_cos_mean            — Mean of cos(2*pi * weekday/7) for incoming txns
+  55. in_hour_conc                — Concentration/variance of hours (incoming)
+  56. in_wday_conc                — Concentration/variance of weekdays (incoming)
+
+Payment Format Entropy (2 features):
+  57. out_payment_format_entropy  — Shannon entropy of outgoing payment formats
+  58. in_payment_format_entropy   — Shannon entropy of incoming payment formats
+
+  Higher entropy = more diverse payment methods = potentially suspicious.
+
+
+=== BLOCK B: RANDOM WALK FEATURES (4 dimensions) ===
+
+  Computed by launching 20 random walks of length 10 from each node.
+
+  1. rw_return_rate              — Fraction of walks that return to the starting node
+  2. rw_return_frequency         — Average number of returns per walk
+  3. rw_first_return_mean        — Average step number at first return to source
+  4. rw_unique_ratio             — Average fraction of unique nodes visited per walk
+
+  WHY THESE MATTER:
+  - High return rate = money cycling back (layering indicator)
+  - Low unique ratio = money staying in a tight cluster (shell company networks)
+  - Fast first return = short circular paths (structuring indicator)
+
+
+=== BLOCK C: EGONET FEATURES (8 dimensions) — OPTIONAL, NOT USED IN ACTIVE MODEL ===
+
+  1. in_degree                   — Number of incoming edges
+  2. out_degree                  — Number of outgoing edges
+  3. total_degree                — in_degree + out_degree
+  4. ego_edges                   — Number of edges within 1-hop ego network
+  5. ego_density                 — Density of 1-hop ego subgraph
+  6. flow_asymmetry              — |in_degree - out_degree| / total_degree
+  7. mutual_degree               — Number of mutual (bidirectional) connections
+  8. neighbor_degree_sum         — Sum of all neighbors' degrees
+
+
+3. FEATURE NORMALIZATION
+-------------------------
+
+Method: StandardScaler (sklearn)
+  - Formula: X_scaled = (X - mean) / std
+  - Fit on: Training split ONLY (prevents data leakage)
+  - Applied to: Both Block A and Block B independently
+  - Purpose: Normalize heavy-tailed distributions (transaction amounts span orders of magnitude)
+
+Code:
+  scaler_a = StandardScaler()
+  scaler_a.fit(X_a_train_raw[train_mask])
+  X_a_test = scaler_a.transform(X_a_test_raw)
+
+
+4. GRAPH CONSTRUCTION
+---------------------
+
+Source Data: IBM AML HI-Small_Trans.csv
+  - 5,078,345 transactions
+  - 515,080 unique accounts
+
+Node Construction:
+  - Each unique account ID becomes a node
+  - Node index assigned via account_to_id mapping dictionary
+
+Edge Construction:
+  - Each transaction creates a DIRECTED edge: source Account -> destination Account.1
+  - Edge index shape: (2, num_edges) in PyTorch Geometric format
+  - Edge attributes: Amount Paid stored separately as edge weights
+
+Node Labels (Ground Truth):
+  - Binary: 0 = normal, 1 = laundering
+  - If ANY transaction involving an account is labeled as laundering, the account gets label 1
+  - Label distribution: 1.23% positive (highly imbalanced)
+
+Temporal Data Splits:
+  - Transactions sorted chronologically by timestamp
+  - Train: First 70% of transactions (3,351,794 edges)
+  - Val:   First 85% of transactions (4,316,706 edges, includes train)
+  - Test:  All 100% of transactions (5,078,345 edges)
+  - WHY TEMPORAL: Prevents future data leaking into training (realistic deployment scenario)
+
+
+5. PATTERN DETECTION
+--------------------
+
+Three structural patterns detected on the transaction graph:
+
+A. Circular Transactions
+  - Detection: Account A sends to Account B AND Account B sends back to A
+  - AML significance: Money flowing in circles suggests layering — a core money laundering technique
+
+B. Hub Accounts
+  - Detection: Top 2% of accounts by total degree (in-degree + out-degree)
+  - AML significance: Aggregation points where funds from multiple sources converge (potential shell companies)
+
+C. Rapid Movement
+  - Detection: Accounts with 10 or more transactions
+  - AML significance: High velocity fund transfers suggest structuring or smurfing
+
+Output format: { "ACC123": ["circular", "hub"], "ACC456": ["rapid_movement"] }
+
+
+6. TRAINING CONFIGURATION
+--------------------------
+
+Active Model: run_1_GraphSAGE_A+B_(Synergy).pkl
+
+  Model:              GraphSAGE
+  Feature Set:        A+B (Behavioral 54-dim + Random Walk 4-dim = 58-dim input)
+  Hidden Dimension:   128
+  Number of Layers:   3
+  Dropout:            0.5
+  Aggregation:        Max-pooling over neighbor embeddings
+  Optimizer:          Adam
+  Learning Rate:      0.005
+  Weight Decay:       5e-4
+  Loss Function:      NLLLoss with inverse-frequency class weights
+  Epochs:             200 (max)
+  Early Stopping:     40 epochs patience, monitored on validation AUC-PR
+  Mixed Precision:    Enabled (float16 via PyTorch AMP)
+  Batch Strategy:     Full-graph inference (no mini-batching)
+  Device:             CUDA (GPU) if available, else CPU
+
+Class Weight Handling:
+  - Due to extreme class imbalance (1.23% positive), NLLLoss uses inverse frequency weights
+  - weight[1] = count(class_0) / count(class_1) ~ 80x
+  - This forces the model to pay much more attention to the rare laundering class
+
+
+7. INFERENCE PIPELINE
+---------------------
+
+Step 1 — Load pre-computed feature tensors:
+  - Block A: features_behavioral_test.pt (54-dim per node)
+  - Block B: features_random_walk_test.pt (4-dim per node)
+  - Concatenate: X = [Block_A, Block_B] -> 58-dim per node
+
+Step 2 — Load graph structure:
+  - Edge index from base_graph_data.pt
+  - Account mappings from account_maps.pkl
+
+Step 3 — Run model:
+  model.eval()
+  with torch.no_grad():
+      log_probs = model(X, edge_index)
+  prob_positive = log_probs.exp()[:, 1]   # probability of laundering class
+
+Step 4 — Map back to accounts:
+  - For each node index, look up the account ID via id_to_account mapping
+  - If an account has multiple node representations, take the MAXIMUM risk score
+  - Output: Dict[account_id, risk_score] where risk_score is in [0, 1]
+
+Step 5 — Flag accounts:
+  - Accounts with risk_score >= RISK_THRESHOLD (default 0.7) are flagged
+  - Classification: NORMAL (< 0.3) | SUSPICIOUS (0.3-0.7) | LAUNDERING (>= 0.7)
+
+
+8. TEST SET PERFORMANCE
+------------------------
+
+Dataset: IBM AML HI-Small (515,080 nodes, 5,078,345 edges)
+
+  PR-AUC (Precision-Recall AUC):   0.3159
+  ROC-AUC:                          0.9092
+  Precision@100:                    0.9500
+
+WHY PR-AUC MATTERS MORE THAN ROC-AUC:
+  With only 1.23% positive labels, ROC-AUC can be misleadingly high.
+  PR-AUC better reflects performance on the minority (laundering) class.
+  A PR-AUC of 0.3159 on a 1.23% base rate means the model is ~25x better
+  than random at identifying laundering accounts.
+
+Precision@100 = 0.95 means:
+  Of the top 100 accounts the model is most confident about, 95 are actual laundering accounts.
+  This is the metric that matters most for investigators — when they look at the top flagged accounts,
+  95% of the time they're looking at real suspicious activity.
+
+
+9. MODEL CHECKPOINTS
+--------------------
+
+Location: backend/model/
+
+  run_1_GraphSAGE_A+B_(Synergy).pkl   (108 KB) — ACTIVE PRODUCTION MODEL
+    GraphSAGE, hidden=128, dropout=0.5, aggr=max, features=A+B (58-dim)
+
+  run_2_GraphSAGE_A_Behavioral.pkl     (106 KB)
+    GraphSAGE, hidden=64, dropout=0.3, features=A only (54-dim)
+
+  run_3_GraphSAGE_A+B_(Synergy).pkl    (108 KB)
+    Second run with same config as run_1
+
+Checkpoint format:
+  {
+    "model_state_dict": { ... },
+    "config": {
+      "hidden_dim": 128,
+      "num_layers": 3,
+      "dropout": 0.5,
+      "lr": 0.005,
+      "weight_decay": 5e-4,
+      "epochs": 200,
+      "patience": 40,
+      "aggr": "max"
+    },
+    "input_dim": 58,
+    "model_name": "GraphSAGE",
+    "feature_set": "A+B (Synergy)"
+  }
+
+
+10. PROCESSED DATA ARTIFACTS
+-----------------------------
+
+Feature Files (backend/data/kaggle/working/processed_data/features/):
+  features_behavioral_train.pt        — Block A training features
+  features_behavioral_val.pt          — Block A validation features
+  features_behavioral_test.pt         — Block A test features (full graph)
+  features_random_walk_train.pt       — Block B training features
+  features_random_walk_val.pt         — Block B validation features
+  features_random_walk_test.pt        — Block B test features (full graph)
+  features_egonet_fast_train.pt       — Block C (optional, not used)
+  features_egonet_fast_val.pt
+  features_egonet_fast_test.pt
+  features_behavioral_names.json      — Feature name list for Block A
+  features_random_walk_names.json     — Feature name list for Block B
+  features_egonet_fast_names.json     — Feature name list for Block C
+
+Metadata Files (backend/data/kaggle/working/processed_data/metadata/):
+  base_graph_data.pt                  (101 MB) — PyG Data object with full graph
+  edge_index_train.pt                 (52 MB)  — Training edge indices
+  edge_index_val.pt                   (66 MB)  — Validation edge indices
+  edge_index_test.pt                  (78 MB)  — Test edge indices (full graph)
+  node_labels_y.pt                    (4 MB)   — Ground truth labels (515K nodes)
+  account_maps.pkl                    (14 MB)  — account_to_id / id_to_account dicts
+  edge_attr_amount_paid.pt            (20 MB)  — Edge weights (transaction amounts)
+  feature_manifest.json               — Feature block metadata
+
+
+11. WHY GRAPHSAGE OVER GCN/GAT
+-------------------------------
+
+GraphSAGE was chosen as the production model for several reasons:
+
+  1. INDUCTIVE LEARNING: GraphSAGE can generalize to unseen nodes by sampling and
+     aggregating neighbor features, unlike transductive GCN which must retrain on new nodes.
+
+  2. SCALABILITY: Neighbor sampling (max-pooling aggregation) scales to millions of nodes
+     without requiring full-graph message passing at every layer.
+
+  3. RESIDUAL CONNECTIONS: Our implementation adds skip connections when dimensions match,
+     helping gradient flow through 3 layers and preventing over-smoothing.
+
+  4. MAX-POOL AGGREGATION: Captures the most extreme neighbor signals — important for AML
+     where a single highly suspicious neighbor is more informative than the average.
+
+  5. EMPIRICAL PERFORMANCE: run_1 GraphSAGE achieved the best PR-AUC (0.3159) and
+     Precision@100 (0.95) among tested configurations.
+
+
+12. SUMMARY SPECIFICATION TABLE
+--------------------------------
+
+  Model Architecture:       GraphSAGE (3 layers, residual connections)
+  Input Features:           58 (54 behavioral + 4 random walk)
+  Hidden Dimension:         128
+  Layer Pattern:            SAGEConv -> BatchNorm -> ReLU -> ResidualAdd -> Dropout
+  Aggregation:              Max-pooling over neighbors
+  Dropout Rate:             0.5
+  Output:                   2-class LogSoftmax (Normal vs Laundering)
+  Optimizer:                Adam (lr=0.005, weight_decay=5e-4)
+  Loss:                     NLLLoss with inverse-frequency class weights
+  Training:                 200 epochs, early stop at 40 patience on val AUC-PR
+  Mixed Precision:          float16 (PyTorch AMP)
+  Graph:                    515,080 nodes, 5,078,345 directed edges
+  Label Balance:            1.23% positive (laundering)
+  Data Split:               70/15/15 temporal
+  Normalization:            StandardScaler (fit on train only)
+  Test PR-AUC:              0.3159
+  Test ROC-AUC:             0.9092
+  Test Precision@100:       0.9500
+  Checkpoint Size:          108 KB

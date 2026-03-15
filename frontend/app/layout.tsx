@@ -15,6 +15,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "GenAI Genesis - AML Fraud Detection",
   description: "GNN + Railtracks + Watsonx anti-money laundering dashboard",
+  icons: {
+    icon: "/image-removebg-preview (7).png",
+  },
 };
 
 export default function RootLayout({

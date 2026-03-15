@@ -1,0 +1,197 @@
+GenAI-Genesis — DevPost Report
+================================
+
+INSPIRATION
+-----------
+Money laundering moves an estimated $800B-$2T globally each year, yet compliance teams still rely on rigid, rule-based systems that generate mountains of false positives and miss sophisticated schemes. We asked: what if investigators had an AI-native platform that could score risk with graph neural networks, explain its reasoning through multi-agent AI, and let analysts interrogate cases with a copilot — all in one place? GenAI-Genesis is our answer: a Palantir-style investigation platform purpose-built for financial crime.
+
+
+WHAT IT DOES
+------------
+GenAI-Genesis is an end-to-end Anti-Money Laundering (AML) investigation platform that transforms raw transaction data into actionable intelligence for fraud investigators.
+
+The core loop:
+1. Ingest millions of transactions from IBM AML datasets (Kaggle)
+2. Build a transaction graph — accounts are nodes, payments are edges
+3. Score every account with a trained Graph Neural Network (GraphSAGE)
+4. Explain flagged accounts using a 3-agent AI pipeline ("Railtracks")
+5. Investigate through an interactive 3D network dashboard with an AI Copilot
+6. Export investigation reports as PDF for regulatory filing
+
+Key capabilities:
+- Pattern detection — circular money flows (layering), hub accounts (aggregation points), rapid-movement accounts (velocity-based flagging)
+- Risk scoring — GNN produces per-account risk scores from 58-dimensional behavioral + random walk features
+- Multi-agent explanations — three specialized LLM agents (Pattern -> Risk -> Investigator) generate human-readable narratives
+- Per-account AI analysis — IBM Watsonx generates detailed explanations for individual accounts on demand
+- Case management — auto-generates structured investigation cases with subgraph extraction, role assignment (source/mule/hub/sink), transaction timelines, and priority scoring
+- Investigator Copilot — AI-powered Q&A that summarizes cases, explains patterns, suggests next steps, and drafts SAR-ready narratives
+- 3D graph visualization — interactive force-directed network graph with risk-colored nodes, account search, and drill-down
+- PDF/LaTeX export — one-click report generation for flagged accounts and case reports
+
+
+HOW WE BUILT IT
+----------------
+
+Architecture:
+
+  Frontend (Next.js 16 / React 19 / TypeScript)
+  - 3D Network Graph (react-force-graph-3d + Three.js)
+  - Account Sidebar (risk score, patterns, AI explanation)
+  - Case Management UI
+  - PDF Export (jsPDF)
+              |
+         REST API
+              |
+  Backend (FastAPI / Python 3.12)
+  - Pipeline Orchestrator
+    - CSV Loader -> Feature Engineering -> Graph Construction
+    - GNN Inference (PyTorch Geometric — GraphSAGE/GCN/GAT)
+    - Railtracks 3-Agent Explainer (LiteLLM -> Gemini)
+    - Graph Analysis (communities, roles, suspicious flows)
+    - Case Builder (subgraph, timeline, priority scoring)
+  - Watsonx Client (on-demand account explanations)
+  - Copilot Agent (case Q&A, SAR drafting)
+  - DB Client (SQLite / IBM Db2)
+  - Export Service (ReportLab PDF/LaTeX)
+              |
+  Data: IBM AML CSVs -> Parquet -> SQLite -> JSON case files
+
+
+The Pipeline (Step by Step):
+
+  Step 1 - Load: Ingest IBM AML transaction CSVs (454MB-16GB+)
+  Step 2 - Preprocess: Validate schema, engineer temporal features (hour, day, month), compute derived features (amount ratio, velocity, device changes)
+  Step 3 - Graph Build: Construct directed transaction graph; detect circular flows, hub nodes, rapid-movement accounts
+  Step 4 - GNN Inference: Load pre-trained GraphSAGE model; score every account using 58-dim feature vectors (54 behavioral + 4 random walk)
+  Step 5 - Persist: Save predictions to SQLite + Parquet
+  Step 6 - Railtracks: Run 3-agent explainer on top-50 flagged accounts
+  Step 7 - Graph Analysis: Community detection (label propagation), role classification, DFS suspicious flow detection
+  Step 8 - Case Generation: Auto-build investigation cases with subgraphs, timelines, role assignments, priority scores
+  Step 9 - Serve: REST API + Next.js dashboard
+
+
+Railtracks: The Multi-Agent Explainer
+
+This is our core innovation — three specialized LLM agents orchestrated in sequence:
+
+  Flagged Accounts -> Pattern Agent -> Risk Agent -> Investigator Agent -> Dashboard Explanation
+
+- Pattern Agent — identifies laundering typologies (circular transactions, hub behavior, rapid movement)
+- Risk Agent — evaluates severity using score distributions and transaction statistics
+- Investigator Agent — synthesizes both into a concise, human-readable explanation
+
+The system gracefully falls back through LLM providers: Google Gemini -> OpenAI GPT-4o -> static message.
+
+
+Investigator Copilot
+
+The platform's signature feature — an AI assistant that operates over structured case data:
+- Answers investigator questions about any case
+- Explains detected patterns and their significance
+- Suggests next investigative steps
+- Drafts SAR (Suspicious Activity Report)-ready narratives
+- Full context awareness of the case's subgraph, timeline, and role assignments
+
+
+TECH STACK
+----------
+Frontend: Next.js 16, React 19, TypeScript 5, Tailwind CSS 4, react-force-graph-2d/3d, Three.js, jsPDF, Lucide React
+Backend: Python 3.12, FastAPI, Uvicorn, Pydantic 2.0
+ML/AI: PyTorch 2.0+, PyTorch Geometric 2.4+ (GraphSAGE, GCN, GAT)
+LLM: IBM Watsonx.ai (Granite 8B Instruct), Google Gemini (via LiteLLM), OpenAI GPT-4o (fallback)
+Data: Pandas, NumPy, PyArrow (Parquet), Joblib
+Database: SQLite (default), IBM Db2 (enterprise)
+Export: ReportLab (PDF/LaTeX)
+Deploy: Docker, IBM Code Engine
+Data Source: IBM AML datasets (Kaggle)
+
+
+API ENDPOINTS
+-------------
+POST /pipeline/run — Run full pipeline (data -> GNN -> Railtracks -> case generation); caches result
+GET  /flagged — Flagged accounts from last run (with Railtracks summaries)
+GET  /graph/{id} — Graph (nodes, edges); optional id for account subgraph
+GET  /accounts/{id} — Account flag (NORMAL | SUSPICIOUS | LAUNDERING) + Watsonx explanation
+GET  /health — DB and model status
+
+POST /cases/generate — Auto-generate cases from pipeline results
+POST /cases/create/{account_id} — Manually create a case for a specific account
+GET  /cases — List cases with status/priority filters
+GET  /cases/{case_id} — Full case detail (accounts, patterns, timeline, notes)
+PATCH /cases/{case_id} — Update case status or priority
+POST /cases/{case_id}/notes — Add investigator notes
+GET  /cases/{case_id}/graph — Case subgraph visualization data
+GET  /cases/{case_id}/timeline — Transaction timeline with event classification
+POST /cases/{case_id}/copilot — Ask the AI copilot about a case
+
+GET  /export/flagged-accounts/pdf — PDF report of flagged accounts
+GET  /export/flagged-accounts/latex — LaTeX report of flagged accounts
+GET  /cases/{case_id}/export — Case investigation report (PDF)
+
+
+GNN DETAILS
+-----------
+Models Supported: GraphSAGE (primary), GCN, GAT
+Input: 58-dimensional feature vectors per account
+  - Block A: Behavioral features (54-dim)
+  - Block B: Random walk features (4-dim)
+Output: Per-account risk score (0-1, binary classification)
+Training: Pre-computed features stored as PyTorch tensors
+Model Format: .pkl checkpoint with state_dict, config, input_dim, model_name, feature_set
+
+Detected Graph Patterns:
+- Circular — bidirectional transactions between accounts (potential layering)
+- Hub — top 2% of accounts by degree (high transaction volume, possible aggregation points)
+- Rapid Movement — accounts with 10+ transactions (fast fund transfers)
+
+Graph Analysis:
+- Community Detection: Label propagation clustering
+- Role Classification: Source, Collector, Mule, Hub, Distributor, Sink
+- Suspicious Flow Detection: DFS path ranking, value flow analysis
+- Account Timelines: Temporal sequencing of transactions
+
+
+DATA
+----
+Source: IBM AML datasets from Kaggle (HI/LI-Small/Medium/Large)
+Schema: Timestamp, From Bank, Account, To Bank, Account.1, Amount Received, Receiving Currency, Amount Paid, Payment Currency, Payment Format, Is Laundering
+Sizes: 454MB (Small) to 16GB+ (Large)
+
+
+CHALLENGES WE RAN INTO
+-----------------------
+- Scale — the Large IBM AML dataset is 16GB+; we had to pre-compute feature tensors and use efficient inference to handle millions of nodes
+- Explainability — GNN risk scores alone aren't useful to investigators; the Railtracks multi-agent pipeline was our solution to bridge the gap between ML output and human understanding
+- LLM reliability — API rate limits and outages required building a graceful 3-tier fallback system (Gemini -> OpenAI -> static)
+- Graph visualization performance — rendering thousands of nodes in 3D required careful optimization with Three.js and react-force-graph
+
+
+ACCOMPLISHMENTS WE'RE PROUD OF
+-------------------------------
+- End-to-end pipeline — from raw CSV to interactive 3D investigation dashboard in a single POST /pipeline/run call
+- Multi-agent reasoning — the Railtracks Pattern -> Risk -> Investigator pipeline produces genuinely useful explanations, not just summaries
+- Investigator Copilot — transforms the platform from a detection tool into a full investigation assistant with SAR-ready narrative drafting
+- Three GNN architectures — support for GraphSAGE, GCN, and GAT with a unified inference interface
+- Enterprise-ready — IBM Watsonx integration, Db2 support, Docker deployment, PDF/LaTeX export
+
+
+WHAT WE LEARNED
+---------------
+- Graph neural networks are remarkably effective at detecting money laundering patterns that rule-based systems miss — network topology contains signal that per-transaction analysis can't capture
+- Multi-agent LLM architectures produce better explanations than single-prompt approaches — each agent specializes and builds on the previous agent's output
+- Investigators need narratives, not numbers — the AI explanation layer was critical for making GNN scores actionable
+- Pre-computing features as PyTorch tensors dramatically speeds up inference and makes the system practical for large-scale deployment
+
+
+WHAT'S NEXT
+-----------
+- Real-time streaming — process transactions as they arrive rather than in batch
+- SAR auto-filing — generate complete Suspicious Activity Reports from case data
+- Multi-dataset fusion — combine transaction data with KYC, device fingerprint, and geolocation signals
+- Fine-tuned GNN — train on organization-specific labeled data for higher precision
+- Role-based access control — multi-user support with audit logging for compliance teams
+
+
+BUILT WITH
+----------
+python, fastapi, pytorch, pytorch-geometric, graphsage, graph-neural-networks, ibm-watsonx, google-gemini, litellm, nextjs, react, typescript, tailwindcss, threejs, sqlite, docker, pandas, numpy
